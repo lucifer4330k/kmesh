@@ -1264,7 +1264,7 @@ func TestBuildServiceMetric(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, loginfo := m.buildServiceMetric(tt.args.data)
+			got, loginfo := m.buildServiceMetric(tt.args.data, true)
 			assert.Equal(t, tt.want, got)
 			assert.Equal(t, tt.wantLogInfo, loginfo)
 		})
