@@ -717,14 +717,7 @@ func (m *MetricController) getServiceByAddress(address []byte) (*workloadapi.Ser
 	return nil, ""
 }
 
-func (m *MetricController) fetchOriginalService(address []byte, port uint32) *workloadapi.Service {
-	// if destination is service-type, we just return
-	svc, _ := m.getServiceByAddress(address)
-	if svc != nil {
-		return svc
-	}
-	// else if it is workload-type, we guess the destination service
-	wld, wldAddr := m.getWorkloadByAddress(address)
+func (m *MetricController) getServiceFromWorkload(wld *workloadapi.Workload, wldAddr string, port uint32) *workloadapi.Service {
 	dstSvc := m.guessWorkloadService(wld, port)
 	// when dst svc not found, we use orig dst workload addr as its hostname, if exists
 	if dstSvc == nil && wld != nil {
@@ -734,6 +727,17 @@ func (m *MetricController) fetchOriginalService(address []byte, port uint32) *wo
 		}
 	}
 	return dstSvc
+}
+
+func (m *MetricController) fetchOriginalService(address []byte, port uint32) *workloadapi.Service {
+	// if destination is service-type, we just return
+	svc, _ := m.getServiceByAddress(address)
+	if svc != nil {
+		return svc
+	}
+	// else if it is workload-type, we guess the destination service
+	wld, wldAddr := m.getWorkloadByAddress(address)
+	return m.getServiceFromWorkload(wld, wldAddr, port)
 }
 
 func (m *MetricController) buildServiceMetric(reqMetric *requestMetric) (serviceMetricLabels, logInfo) {
@@ -747,7 +751,21 @@ func (m *MetricController) buildServiceMetric(reqMetric *requestMetric) (service
 	dstWorkload, dstIp := m.getWorkloadByAddress(restoreIPv4(dstAddr))
 	srcWorkload, srcIp := m.getWorkloadByAddress(restoreIPv4(srcAddr))
 
-	dstService := m.fetchOriginalService(restoreIPv4(origAddr), uint32(reqMetric.origDstPort))
+	var dstService *workloadapi.Service
+	if bytes.Equal(dstAddr, origAddr) {
+		// When the destination address equals the original address, prefer a direct
+		// service lookup by address first, and only fall back to workload-based
+		// guessing if no service is found. This preserves correct labeling when a
+		// workload IP is also registered as a service address.
+		if svc, _ := m.getServiceByAddress(restoreIPv4(origAddr)); svc != nil {
+			dstService = svc
+		} else if dstWorkload != nil {
+			dstService = m.getServiceFromWorkload(dstWorkload, dstIp, uint32(reqMetric.origDstPort))
+		}
+	} else {
+		dstService = m.fetchOriginalService(restoreIPv4(origAddr), uint32(reqMetric.origDstPort))
+	}
+
 	// if dstService not found, we use the address as hostname for metrics
 	if dstService == nil {
 		dstService = &workloadapi.Service{
@@ -793,7 +811,21 @@ func (m *MetricController) buildConnectionMetric(reqMetric *requestMetric) conne
 		return connectionMetricLabels{}
 	}
 
-	dstService := m.fetchOriginalService(restoreIPv4(origAddr), uint32(reqMetric.origDstPort))
+	var dstService *workloadapi.Service
+	if bytes.Equal(dstAddr, origAddr) {
+		// Preserve behavior of fetchOriginalService: prefer a concrete service
+		// from the service cache (getServiceByAddress) when one exists, and
+		// only fall back to a workload-derived service otherwise.
+		svc, _ := m.getServiceByAddress(restoreIPv4(origAddr))
+		if svc != nil {
+			dstService = svc
+		} else if dstWorkload != nil {
+			dstService = m.getServiceFromWorkload(dstWorkload, dstIP, uint32(reqMetric.origDstPort))
+		}
+	} else {
+		dstService = m.fetchOriginalService(restoreIPv4(origAddr), uint32(reqMetric.origDstPort))
+	}
+
 	// if dstService not found, we use the address as hostname for metrics
 	if dstService == nil {
 		dstService = &workloadapi.Service{
