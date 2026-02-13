@@ -813,11 +813,14 @@ func (m *MetricController) buildConnectionMetric(reqMetric *requestMetric) conne
 
 	var dstService *workloadapi.Service
 	if bytes.Equal(dstAddr, origAddr) {
-		if dstWorkload != nil {
-			dstService = m.getServiceFromWorkload(dstWorkload, dstIP, uint32(reqMetric.origDstPort))
-		} else {
-			svc, _ := m.getServiceByAddress(restoreIPv4(origAddr))
+		// Preserve behavior of fetchOriginalService: prefer a concrete service
+		// from the service cache (getServiceByAddress) when one exists, and
+		// only fall back to a workload-derived service otherwise.
+		svc, _ := m.getServiceByAddress(restoreIPv4(origAddr))
+		if svc != nil {
 			dstService = svc
+		} else if dstWorkload != nil {
+			dstService = m.getServiceFromWorkload(dstWorkload, dstIP, uint32(reqMetric.origDstPort))
 		}
 	} else {
 		dstService = m.fetchOriginalService(restoreIPv4(origAddr), uint32(reqMetric.origDstPort))
