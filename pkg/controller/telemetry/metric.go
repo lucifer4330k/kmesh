@@ -753,11 +753,14 @@ func (m *MetricController) buildServiceMetric(reqMetric *requestMetric) (service
 
 	var dstService *workloadapi.Service
 	if bytes.Equal(dstAddr, origAddr) {
-		if dstWorkload != nil {
-			dstService = m.getServiceFromWorkload(dstWorkload, dstIp, uint32(reqMetric.origDstPort))
-		} else {
-			svc, _ := m.getServiceByAddress(restoreIPv4(origAddr))
+		// When the destination address equals the original address, prefer a direct
+		// service lookup by address first, and only fall back to workload-based
+		// guessing if no service is found. This preserves correct labeling when a
+		// workload IP is also registered as a service address.
+		if svc, _ := m.getServiceByAddress(restoreIPv4(origAddr)); svc != nil {
 			dstService = svc
+		} else if dstWorkload != nil {
+			dstService = m.getServiceFromWorkload(dstWorkload, dstIp, uint32(reqMetric.origDstPort))
 		}
 	} else {
 		dstService = m.fetchOriginalService(restoreIPv4(origAddr), uint32(reqMetric.origDstPort))
