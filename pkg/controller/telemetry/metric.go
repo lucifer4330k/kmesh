@@ -501,7 +501,8 @@ func (m *MetricController) Run(ctx context.Context, mapOfTcpInfo *ebpf.Map) {
 			}
 
 			workloadLabels := workloadMetricLabels{}
-			serviceLabels, accesslog := m.buildServiceMetric(&reqMetric)
+			enableAccessLog := m.EnableAccesslog.Load()
+			serviceLabels, accesslog := m.buildServiceMetric(&reqMetric, enableAccessLog)
 			if m.EnableWorkloadMetric.Load() {
 				workloadLabels = m.buildWorkloadMetric(&reqMetric)
 			}
@@ -510,7 +511,7 @@ func (m *MetricController) Run(ctx context.Context, mapOfTcpInfo *ebpf.Map) {
 			if m.EnableConnectionMetric.Load() && reqMetric.duration > LONG_CONN_METRIC_THRESHOLD {
 				connectionLabels = m.buildConnectionMetric(&reqMetric)
 			}
-			if m.EnableAccesslog.Load() {
+			if enableAccessLog {
 				// accesslogs at interval of 5 sec during connection lifecycle if connectionMetrics is enabled and at close of connection
 				outputAccesslog(reqMetric, tcpConns[reqMetric.conSrcDstInfo], accesslog)
 			}
@@ -736,7 +737,7 @@ func (m *MetricController) fetchOriginalService(address []byte, port uint32) *wo
 	return dstSvc
 }
 
-func (m *MetricController) buildServiceMetric(reqMetric *requestMetric) (serviceMetricLabels, logInfo) {
+func (m *MetricController) buildServiceMetric(reqMetric *requestMetric, enableAccessLog bool) (serviceMetricLabels, logInfo) {
 	var dstAddr, srcAddr, origAddr []byte
 	for i := range reqMetric.conSrcDstInfo.dst {
 		dstAddr = binary.LittleEndian.AppendUint32(dstAddr, reqMetric.conSrcDstInfo.dst[i])
@@ -760,21 +761,28 @@ func (m *MetricController) buildServiceMetric(reqMetric *requestMetric) (service
 	trafficLabels.requestProtocol = "tcp"
 	trafficLabels.connectionSecurityPolicy = "mutual_tls"
 
-	accesslog := NewLogInfo()
-	accesslog.withSource(srcWorkload).withDestination(dstWorkload).withDestinationService(dstService)
-	accesslog.destinationAddress = dstIp + ":" + fmt.Sprintf("%d", reqMetric.conSrcDstInfo.dstPort)
-	accesslog.sourceAddress = srcIp + ":" + fmt.Sprintf("%d", reqMetric.conSrcDstInfo.srcPort)
-
 	switch reqMetric.conSrcDstInfo.direction {
 	case constants.INBOUND:
 		trafficLabels.reporter = "destination"
-		accesslog.direction = "INBOUND"
 	case constants.OUTBOUND:
 		trafficLabels.reporter = "source"
-		accesslog.direction = "OUTBOUND"
 	}
 
-	accesslog.state = TCP_STATES[reqMetric.state]
+	accesslog := NewLogInfo()
+	if enableAccessLog {
+		accesslog.withSource(srcWorkload).withDestination(dstWorkload).withDestinationService(dstService)
+		accesslog.destinationAddress = dstIp + ":" + fmt.Sprintf("%d", reqMetric.conSrcDstInfo.dstPort)
+		accesslog.sourceAddress = srcIp + ":" + fmt.Sprintf("%d", reqMetric.conSrcDstInfo.srcPort)
+
+		switch reqMetric.conSrcDstInfo.direction {
+		case constants.INBOUND:
+			accesslog.direction = "INBOUND"
+		case constants.OUTBOUND:
+			accesslog.direction = "OUTBOUND"
+		}
+
+		accesslog.state = TCP_STATES[reqMetric.state]
+	}
 	return *trafficLabels, *accesslog
 }
 
