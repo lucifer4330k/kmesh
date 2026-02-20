@@ -11,6 +11,12 @@
 #include <linux/bpf.h>
 #include <sys/socket.h>
 #include <bpf/bpf_helpers.h>
+
+#if defined(__GNUC__) && !defined(__clang__)
+#undef SEC
+#define SEC(name) __attribute__((section(name), used))
+#endif
+
 #include <bpf/bpf_endian.h>
 #include "map_config.h"
 

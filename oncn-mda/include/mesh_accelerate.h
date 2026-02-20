@@ -11,6 +11,12 @@
 #include <linux/bpf.h>
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
+
+#if defined(__GNUC__) && !defined(__clang__)
+#undef SEC
+#define SEC(name) __attribute__((section(name), used))
+#endif
+
 #include "data.h"
 
 enum bpf_loglevel {
