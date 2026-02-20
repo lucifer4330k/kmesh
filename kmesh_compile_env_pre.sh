@@ -61,18 +61,6 @@ function dependency_pkg_install() {
 	fi
 }
 
-# fix bug in libbpf
-function fix_libbpf_bug() {
-	if ! grep -iq "#define SEC(name) __attribute__((section(name), used))" /usr/include/bpf/bpf_helpers.h; then
-		LINENUMBER=$(grep -n '#define SEC(name)' /usr/include/bpf/bpf_helpers.h | cut -f1 -d:)
-		if [[ -n $LINENUMBER ]]; then
-			sed -i "${LINENUMBER} i #if __GNUC__ && !__clang__\n#define SEC(name) __attribute__((section(name), used))\n#else" /usr/include/bpf/bpf_helpers.h
-			LINENUMBER=$((LINENUMBER + 8))
-			sed -i "${LINENUMBER} a \\#endif" /usr/include/bpf/bpf_helpers.h
-		fi
-	fi
-}
-
 function adapt_low_version_kernel() {
 	# adapt less insn in kernel 4.19, only 4096, so modify KMESH_PER_ENDPOINT_NUM into 15
 	if [ "$(uname -r | cut -d '.' -f 1)" -le 4 ]; then
@@ -129,7 +117,6 @@ function prepare() {
 	if [ "${SKIP_DEPENDENCY_INSTALL}" != "true" ]; then
 		dependency_pkg_install
 	fi
-	fix_libbpf_bug
 	adapt_low_version_kernel
 	adapt_include_env
 	kmesh_set_env
